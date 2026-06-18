@@ -5,7 +5,10 @@ import os
 import re
 from typing import Any
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover
+    OpenAI = Any  # type: ignore[assignment,misc]
 
 from .search_args import (
     build_search_args as build_shared_search_args,
@@ -430,6 +433,8 @@ def create_mimo_client() -> OpenAI:
         raise RuntimeError(
             f"缺少 Mimo API Key，请设置环境变量 {MIMO_API_KEY_ENV}。"
         )
+    if not callable(OpenAI):
+        raise RuntimeError("缺少 openai Python 包，请先安装 openai 后再使用类案分析功能。")
 
     return OpenAI(
         api_key=api_key,

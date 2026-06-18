@@ -8,7 +8,10 @@ from typing import Any
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from src.legal_case_rag.app import advisor_service as advisor
+from src.legal_case_rag.runtime.env import load_project_env
 
+
+load_project_env()
 
 app = Flask(__name__)
 STATIC_VERSION = str(int(time.time()))
