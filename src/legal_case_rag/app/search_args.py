@@ -90,6 +90,10 @@ def build_search_args(
         context_window=int_param(payload.get("context_window"), default_config.get("context_window", 180)),
         query_profile=bool_param(payload.get("query_profile"), default_config.get("query_profile", True)),
         query_profile_boost=bool_param(payload.get("query_profile_boost"), default_config.get("query_profile_boost", True)),
+        llm_query_rewrite=bool_param(
+            payload.get("llm_query_rewrite"),
+            default_config.get("llm_query_rewrite", False),
+        ),
         route_weight_overrides=dict_param(
             payload.get("route_weight_overrides"),
             default_config.get("route_weight_overrides", {}),

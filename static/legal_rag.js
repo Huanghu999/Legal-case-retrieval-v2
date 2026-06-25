@@ -4,6 +4,7 @@ const form = document.getElementById("search-form");
 const resultsList = document.getElementById("results-list");
 const resultsMeta = document.getElementById("results-meta");
 const statusBanner = document.getElementById("status-banner");
+const rewriteDebug = document.getElementById("rewrite-debug");
 const searchButton = document.getElementById("search-button");
 const drawer = document.getElementById("case-drawer");
 const drawerContent = document.getElementById("drawer-content");
@@ -70,6 +71,7 @@ function collectPayload() {
     candidate_size: Number(document.getElementById("candidate_size").value || 80),
     rerank_top_n: Number(document.getElementById("rerank_top_n").value || 30),
     rerank_model_weight: Number(document.getElementById("rerank_model_weight").value || 0.25),
+    llm_query_rewrite: document.getElementById("llm_query_rewrite").checked,
     rerank_rank_safe: defaults.rerank_rank_safe ?? true,
     rerank_max_rank_promotion: defaults.rerank_max_rank_promotion ?? 20,
     reason: document.getElementById("reason").value.trim(),
@@ -179,7 +181,52 @@ function renderEmpty(message) {
   `;
 }
 
+function renderRewriteDebug(data) {
+  if (!rewriteDebug) return;
+  const info = data.llm_query_rewrite || {};
+  if (!info.enabled && !info.used && !info.fallback_reason) {
+    rewriteDebug.hidden = true;
+    rewriteDebug.innerHTML = "";
+    return;
+  }
+
+  const labels = Array.isArray(info.focus_labels) ? info.focus_labels.join(" / ") : "";
+  const status = info.used
+    ? "used"
+    : info.enabled
+      ? `fallback: ${info.fallback_reason || "empty"}`
+      : "off";
+  const fields = [
+    ["status", status],
+    ["expanded_query", info.expanded_query],
+    ["legal_issue", info.legal_issue],
+    ["fact_elements", info.fact_elements],
+    ["statutes", info.statutes],
+    ["main_leaf", info.main_leaf],
+    ["focus_labels", labels],
+  ].filter(([, value]) => value);
+
+  rewriteDebug.hidden = false;
+  rewriteDebug.innerHTML = `
+    <div class="rewrite-debug-head">
+      <span>LLM Query Rewrite</span>
+      <strong>${escapeHtml(status)}</strong>
+    </div>
+    <div class="rewrite-debug-grid">
+      ${fields
+        .map(([label, value]) => `
+          <div>
+            <span>${escapeHtml(label)}</span>
+            <p>${escapeHtml(value)}</p>
+          </div>
+        `)
+        .join("")}
+    </div>
+  `;
+}
+
 function renderResults(data) {
+  renderRewriteDebug(data);
   state.results = data.results || [];
   if (!state.results.length) {
     renderEmpty("这次没有召回到案件，可以尝试放宽过滤条件或切换检索模式。");
@@ -423,6 +470,7 @@ async function runBenchmark() {
   const rerankTopN = Number(document.getElementById("benchmark-rerank-top-n").value || 100);
   const rerankModelWeight = Number(document.getElementById("benchmark-rerank-model-weight").value || 0.25);
   const rerankRankSafe = document.getElementById("benchmark-rerank-rank-safe").value !== "false";
+  const llmQueryRewrite = document.getElementById("benchmark-llm-query-rewrite").value === "true";
   const rerankMaxRankPromotion = Number(document.getElementById("benchmark-rerank-max-rank-promotion").value || 20);
   const rerankMinIntervalMs = Number(document.getElementById("benchmark-rerank-min-interval-ms").value || 1200);
   const rerankMaxRetries = Number(document.getElementById("benchmark-rerank-max-retries").value || 3);
@@ -442,6 +490,7 @@ async function runBenchmark() {
         rerank_top_n: rerankTopN,
         rerank_model_weight: rerankModelWeight,
         rerank_rank_safe: rerankRankSafe,
+        llm_query_rewrite: llmQueryRewrite,
         rerank_max_rank_promotion: rerankMaxRankPromotion,
         rerank_min_interval_ms: rerankMinIntervalMs,
         rerank_max_retries: rerankMaxRetries,
@@ -504,6 +553,7 @@ async function runSearch() {
     );
   } catch (error) {
     renderEmpty("当前检索失败，请检查 OpenSearch 或 SiliconFlow 配置。");
+    renderRewriteDebug({});
     setStatus(error.message || "检索失败。", "error");
     resultsMeta.textContent = "失败";
   } finally {

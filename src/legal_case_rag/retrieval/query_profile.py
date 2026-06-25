@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .llm_query_rewriter import LlmQueryRewrite
+
 
 NEGATIVE_TERMS = [
     "未",
@@ -304,6 +306,32 @@ def build_legal_query(profile: QueryProfile) -> str:
     )
 
 
+def build_rewrite_legal_query(profile: QueryProfile, rewrite: LlmQueryRewrite | None) -> str:
+    if not rewrite or not rewrite.used:
+        return ""
+    return join_query_parts(
+        [
+            rewrite.legal_issue,
+            rewrite.main_leaf,
+            " ".join(rewrite.focus_labels),
+        ],
+        "",
+    )
+
+
+def build_rewrite_statute_query(profile: QueryProfile, rewrite: LlmQueryRewrite | None) -> str:
+    if not rewrite or not rewrite.used:
+        return ""
+    return join_query_parts(
+        [
+            rewrite.legal_issue,
+            rewrite.statutes,
+            rewrite.main_leaf,
+        ],
+        "",
+    )
+
+
 def build_rerank_query(profile: QueryProfile) -> str:
     return join_query_parts(
         [
@@ -317,29 +345,37 @@ def build_rerank_query(profile: QueryProfile) -> str:
     )
 
 
-def build_query_routes(profile: QueryProfile) -> list[QueryRoute]:
+def build_query_routes(profile: QueryProfile, rewrite: LlmQueryRewrite | None = None) -> list[QueryRoute]:
     routes = [
         QueryRoute("bm25_raw", profile.raw_query, "bm25", 1.0),
         QueryRoute("vector_raw", profile.raw_query, "vector", 0.8),
     ]
     focus_query = build_focus_query(profile)
-    if focus_query and focus_query != profile.raw_query:
-        routes.append(QueryRoute("bm25_focus", focus_query, "bm25", 0.95))
-        routes.append(QueryRoute("vector_focus", focus_query, "vector", 1.20))
-    section_query = focus_query or profile.raw_query
+    expanded_query = rewrite.expanded_query if rewrite and rewrite.used and rewrite.expanded_query else focus_query
+    if expanded_query and expanded_query != profile.raw_query:
+        routes.append(QueryRoute("bm25_focus", expanded_query, "bm25", 0.95))
+        routes.append(QueryRoute("vector_focus", expanded_query, "vector", 1.20))
+    legal_section_query = build_rewrite_legal_query(profile, rewrite)
+    section_query = legal_section_query or focus_query or profile.raw_query
     if section_query:
         routes.extend(
             [
                 QueryRoute("bm25_fine_issue", section_query, "bm25", 1.20, "fine_issue"),
                 QueryRoute("bm25_focus_section", section_query, "bm25", 1.60, "focus"),
                 QueryRoute("bm25_reasoning", section_query, "bm25", 1.10, "reasoning"),
-                QueryRoute("bm25_facts", section_query, "bm25", 0.60, "facts"),
+                QueryRoute(
+                    "bm25_facts",
+                    rewrite.fact_elements if rewrite and rewrite.used and rewrite.fact_elements else section_query,
+                    "bm25",
+                    0.60,
+                    "facts",
+                ),
             ]
         )
     negative_query = build_negative_query(profile)
     if negative_query:
         routes.append(QueryRoute("bm25_negative", negative_query, "bm25", 1.20))
-    legal_query = build_legal_query(profile)
+    legal_query = build_rewrite_statute_query(profile, rewrite) or build_legal_query(profile)
     if legal_query:
         routes.append(QueryRoute("bm25_legal", legal_query, "bm25", 0.80))
     return routes

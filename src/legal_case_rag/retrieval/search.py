@@ -24,6 +24,7 @@ from .constants import (
     DEFAULT_RERANK_URL,
 )
 from .models import ChunkHit
+from .llm_query_rewriter import rewrite_query_with_llm
 from .opensearch_client import OpenSearchClient
 from .query_profile import build_query_profile, build_query_routes, build_rerank_query
 from .search_fusion import (
@@ -58,7 +59,9 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
     query_profile_boost = getattr(args, "query_profile_boost", True)
     route_weight_overrides = getattr(args, "route_weight_overrides", {}) or {}
     profile = build_query_profile(args.query)
-    routes = build_query_routes(profile) if query_profile_enabled else []
+    llm_query_rewrite_enabled = bool(query_profile_enabled and getattr(args, "llm_query_rewrite", False))
+    rewrite = rewrite_query_with_llm(args.query, enabled=llm_query_rewrite_enabled)
+    routes = build_query_routes(profile, rewrite if rewrite.used else None) if query_profile_enabled else []
     if not routes:
         routes = [
             route
@@ -181,6 +184,10 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
         },
         "query_profile": profile.to_dict() if query_profile_enabled else {},
         "query_profile_boost": bool(query_profile_enabled and query_profile_boost),
+        "llm_query_rewrite": {
+            "enabled": llm_query_rewrite_enabled,
+            **rewrite.to_dict(),
+        },
         "query_routes": route_payloads,
         "results": [
             build_result_entry(
@@ -305,8 +312,21 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="保留多路 query，但关闭 query profile bonus 和否定事实加权。",
     )
+    parser.add_argument(
+        "--llm-query-rewrite",
+        dest="llm_query_rewrite",
+        action="store_true",
+        help="启用 LLM query 重写/扩写，用字段对齐要素增强现有 routes。",
+    )
+    parser.add_argument(
+        "--no-llm-query-rewrite",
+        dest="llm_query_rewrite",
+        action="store_false",
+        help="关闭 LLM query 重写/扩写。",
+    )
     parser.set_defaults(query_profile=True)
     parser.set_defaults(query_profile_boost=True)
+    parser.set_defaults(llm_query_rewrite=False)
     parser.add_argument("--opensearch-url", default=os.getenv("OPENSEARCH_URL", DEFAULT_OPENSEARCH_URL))
     parser.add_argument(
         "--opensearch-username",

@@ -420,6 +420,46 @@ select:focus {
   color: var(--accent);
 }
 
+.rewrite-debug {
+  margin: 12px 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(31, 111, 120, 0.14);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 252, 252, 0.9);
+}
+
+.rewrite-debug-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+}
+
+.rewrite-debug-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.rewrite-debug-grid div {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.rewrite-debug-grid span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.rewrite-debug-grid p {
+  margin: 0;
+  word-break: break-word;
+}
+
 .results-list {
   display: grid;
   gap: 18px;

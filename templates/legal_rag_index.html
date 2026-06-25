@@ -87,6 +87,15 @@
                 </label>
               </div>
 
+              <div class="field-group checkbox-group">
+                <span class="field-label">LLM Query改写</span>
+                <label class="toggle">
+                  <input type="checkbox" id="llm_query_rewrite" name="llm_query_rewrite">
+                  <span class="toggle-track"></span>
+                  <span class="toggle-text">提取字段对齐要素</span>
+                </label>
+              </div>
+
               <label class="field-group">
                 <span class="field-label">案件数</span>
                 <input id="top_k" name="top_k" type="number" min="1" max="20" value="8">
@@ -179,6 +188,7 @@
           <div id="status-banner" class="status-banner idle">
             输入一个法律问题，系统会返回案件卡片、命中 chunk 和可回溯的原文证据。
           </div>
+          <div id="rewrite-debug" class="rewrite-debug" hidden></div>
 
           <div id="results-list" class="results-list">
             <div class="empty-state">
@@ -226,6 +236,13 @@
             <select id="benchmark-rerank-rank-safe">
               <option value="true" selected>开启</option>
               <option value="false">关闭</option>
+            </select>
+          </label>
+          <label class="mini-field">
+            <span>LLM Query改写</span>
+            <select id="benchmark-llm-query-rewrite">
+              <option value="false" selected>关闭</option>
+              <option value="true">开启</option>
             </select>
           </label>
           <label class="mini-field">

@@ -52,6 +52,7 @@ def default_frontend_config() -> dict[str, Any]:
         "rerank": True,
         "query_profile": True,
         "query_profile_boost": True,
+        "llm_query_rewrite": True,
         "top_k": 8,
         "chunk_top_k": 3,
         "candidate_size": 80,
@@ -163,6 +164,7 @@ def api_benchmark_evaluate() -> Any:
     )
     display_top_n = benchmark.clamp_int(payload.get("display_top_n"), min(top_k, 20), 1, min(top_k, 50))
     include_details = benchmark.bool_value(payload.get("include_details"), True)
+    llm_query_rewrite = benchmark.bool_value(payload.get("llm_query_rewrite"), False)
     methods = benchmark.normalize_benchmark_methods(payload.get("methods"))
 
     started = time.perf_counter()
@@ -186,6 +188,7 @@ def api_benchmark_evaluate() -> Any:
             rerank_max_retries=rerank_max_retries,
             rerank_rank_safe=rerank_rank_safe,
             rerank_max_rank_promotion=rerank_max_rank_promotion,
+            llm_query_rewrite=llm_query_rewrite,
             route_weight_overrides={},
             display_top_n=display_top_n,
             include_details=include_details,
@@ -235,6 +238,7 @@ def api_benchmark_evaluate() -> Any:
                 "rerank_max_retries": rerank_max_retries,
                 "rerank_rank_safe": rerank_rank_safe,
                 "rerank_max_rank_promotion": rerank_max_rank_promotion,
+                "llm_query_rewrite": llm_query_rewrite,
                 "display_top_n": display_top_n,
                 "methods": methods,
                 "primary_method": primary_method,

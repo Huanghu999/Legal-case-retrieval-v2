@@ -446,6 +446,7 @@ def run_benchmark_method(
     rerank_max_retries: int,
     rerank_rank_safe: bool,
     rerank_max_rank_promotion: int,
+    llm_query_rewrite: bool,
     route_weight_overrides: dict[str, float] | None,
     display_top_n: int,
     include_details: bool,
@@ -472,6 +473,7 @@ def run_benchmark_method(
             "show_context": False,
             "query_profile": True,
             "query_profile_boost": True,
+            "llm_query_rewrite": llm_query_rewrite,
             "route_weight_overrides": route_weight_overrides or {},
         }
         args = build_search_args(search_payload)
@@ -554,6 +556,7 @@ def run_benchmark_method(
             "top_k": top_k,
             "candidate_size": candidate_size,
             "chunk_top_k": chunk_top_k,
+            "llm_query_rewrite": llm_query_rewrite,
             "route_weight_overrides": route_weight_overrides or {},
             "rerank_top_n": rerank_top_n if method_config["rerank"] else 0,
             "rerank_model_weight": rerank_model_weight if method_config["rerank"] else 0,
