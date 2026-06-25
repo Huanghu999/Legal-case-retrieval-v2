@@ -24,16 +24,16 @@ SECTION_WEIGHTS = {
     "fine_issue": 1.55,
     "focus": 1.45,
     "case_profile": 1.20,
-    "reasoning": 1.15,
+    "reasoning": 1.20,
     "facts": 1.00,
-    "claims": 0.75,
-    "defense": 0.75,
-    "judgment": 0.70,
+    "claims": 0.70,
+    "defense": 0.85,
+    "judgment": 0.75,
     "header": 0.40,
     "statutes": 0.45,
 }
 
-KEY_SECTION_TYPES = {"fine_issue", "focus", "reasoning", "facts"}
+KEY_SECTION_TYPES = {"fine_issue", "focus", "reasoning", "facts", "defense"}
 
 LEGAL_RERANK_SECTION_TYPES = {"fine_issue", "focus", "reasoning"}
 

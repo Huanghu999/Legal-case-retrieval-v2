@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ SECTION_TITLES = {
     "fine_issue": "细争点",
     "focus": "争议焦点",
     "claims": "诉称",
+    "defense": "辩称",
     "facts": "查明事实",
     "reasoning": "本院认为",
     "judgment": "裁判结果",
@@ -37,13 +39,23 @@ SECTION_TITLES = {
 SECTION_WEIGHTS = {
     "fine_issue": 1.55,
     "focus": 1.45,
-    "reasoning": 1.15,
+    "reasoning": 1.20,
     "facts": 1.0,
-    "claims": 0.75,
-    "judgment": 0.7,
+    "claims": 0.70,
+    "judgment": 0.75,
     "case_profile": 1.20,
     "statutes": 0.45,
+    "defense": 0.85,
 }
+
+PLEADING_TAIL_RE = re.compile(r"(当事人围绕诉讼请求依法提交了证据|本院组织当事人进行了证据交换|对当事人无异议的证据)")
+PLEADING_MARKER_RE = re.compile(
+    r"(?=(?:原告|上诉人|申请人|再审申请人|反诉原告)[^。；\n\r]{0,30}(?:诉称|补充陈述|上诉请求|请求)|"
+    r"(?:被告|被上诉人|被申请人|第三人|反诉被告)[^。；\n\r]{0,30}(?:辩称|述称|答辩称))"
+)
+DEFENSE_MARKER_RE = re.compile(r"^(?:被告|被上诉人|被申请人|第三人|反诉被告)[^。；\n\r]{0,30}(?:辩称|述称|答辩称)")
+REASONING_BOUNDARY_RE = re.compile(r"(?=(?:本案争议焦点为|本院认为|首先|其次|再次|最后|关于|对于|故|综上))")
+FACT_DATE_BOUNDARY_RE = re.compile(r"(?=(?:19|20)\d{2}年\d{1,2}月\d{1,2}日)")
 
 
 @dataclass
@@ -107,6 +119,37 @@ def as_text(value: Any) -> str:
 
 def clean_text(text: str) -> str:
     return "\n".join(line.strip() for line in (text or "").splitlines() if line.strip())
+
+
+def trim_pleading_tail(text: str) -> str:
+    match = PLEADING_TAIL_RE.search(text or "")
+    if match:
+        return text[: match.start()]
+    return text or ""
+
+
+def split_pleadings_sections(text: str) -> list[tuple[str, str]]:
+    cleaned = clean_text(trim_pleading_tail(text))
+    if not cleaned:
+        return []
+
+    starts = [match.start() for match in PLEADING_MARKER_RE.finditer(cleaned)]
+    if not starts:
+        return [("claims", cleaned)]
+
+    sections: list[tuple[str, str]] = []
+    if starts[0] > 0:
+        sections.append(("claims", clean_text(cleaned[: starts[0]])))
+
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(cleaned)
+        segment = clean_text(cleaned[start:end])
+        if not segment:
+            continue
+        section_type = "defense" if DEFENSE_MARKER_RE.match(segment) else "claims"
+        sections.append((section_type, segment))
+
+    return [(section_type, section_text) for section_type, section_text in sections if section_text]
 
 
 def court_region_from_court(court_name: str) -> str:
@@ -181,6 +224,17 @@ def build_case_doc(row: dict[str, Any], source_file: str, source_row_id: int, sc
     }
 
 
+def core_issue_text(row: dict[str, Any]) -> str:
+    fine = row.get("细争点") or {}
+    focus = row.get("争议焦点") or {}
+    parts = [
+        fine.get("主叶子") or "",
+        as_text(fine.get("细争点")),
+        as_text(focus.get("焦点标签")),
+    ]
+    return "；".join(part for part in parts if part)
+
+
 def build_sections(row: dict[str, Any], case_doc: dict[str, Any]) -> list[tuple[str, str]]:
     focus = row.get("争议焦点") or {}
     analysis = focus.get("焦点评析") or {}
@@ -212,16 +266,21 @@ def build_sections(row: dict[str, Any], case_doc: dict[str, Any]) -> list[tuple[
             f"焦点原文：{focus.get('焦点原文') or ''}",
         ]
     )
-    return [
+    sections = [
         ("case_profile", profile),
         ("fine_issue", fine_issue),
         ("focus", focus_text),
-        ("claims", paragraphs.get("诉称") or ""),
-        ("facts", paragraphs.get("查明事实") or ""),
-        ("reasoning", paragraphs.get("本院认为") or ""),
-        ("judgment", paragraphs.get("裁判结果") or ""),
-        ("statutes", statute_text(row.get("引用法条") or [])),
     ]
+    sections.extend(split_pleadings_sections(paragraphs.get("诉称") or ""))
+    sections.extend(
+        [
+            ("facts", paragraphs.get("查明事实") or ""),
+            ("reasoning", paragraphs.get("本院认为") or ""),
+            ("judgment", paragraphs.get("裁判结果") or ""),
+            ("statutes", statute_text(row.get("引用法条") or [])),
+        ]
+    )
+    return sections
 
 
 def split_text(text: str, max_chars: int, overlap: int) -> list[str]:
@@ -247,41 +306,156 @@ def split_text(text: str, max_chars: int, overlap: int) -> list[str]:
     return chunks
 
 
-def make_embedding_text(case_doc: dict[str, Any], section_title: str, chunk_text: str) -> str:
-    return "\n".join(
+def split_marker_units(text: str, marker_re: re.Pattern[str]) -> list[str]:
+    units: list[str] = []
+    for paragraph in clean_text(text).split("\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        starts = [match.start() for match in marker_re.finditer(paragraph)]
+        if not starts:
+            units.append(paragraph)
+            continue
+        if starts[0] > 0:
+            units.append(paragraph[: starts[0]].strip())
+        for index, start in enumerate(starts):
+            end = starts[index + 1] if index + 1 < len(starts) else len(paragraph)
+            units.append(paragraph[start:end].strip())
+    return [unit for unit in units if unit]
+
+
+def pack_units(units: list[str], max_chars: int, overlap: int) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for unit in units:
+        if len(unit) > max_chars:
+            if current:
+                chunks.append(clean_text(current))
+                current = ""
+            chunks.extend(split_text(unit, max_chars, overlap))
+            continue
+        candidate = f"{current}\n{unit}" if current else unit
+        if current and len(candidate) > max_chars:
+            chunks.append(clean_text(current))
+            current = unit
+        else:
+            current = candidate
+    if current:
+        chunks.append(clean_text(current))
+    return chunks
+
+
+def merge_short_leading_units(units: list[str], min_chars: int = 12) -> list[str]:
+    merged: list[str] = []
+    index = 0
+    while index < len(units):
+        unit = units[index]
+        if len(unit) < min_chars and index + 1 < len(units):
+            merged.append(unit + units[index + 1])
+            index += 2
+            continue
+        merged.append(unit)
+        index += 1
+    return merged
+
+
+def split_section_text(section_type: str, text: str, max_chars: int, overlap: int) -> list[str]:
+    text = clean_text(text)
+    if not text:
+        return []
+    if section_type == "facts":
+        return pack_units(split_marker_units(text, FACT_DATE_BOUNDARY_RE), max_chars, overlap)
+    if section_type == "reasoning":
+        chunks: list[str] = []
+        for unit in merge_short_leading_units(split_marker_units(text, REASONING_BOUNDARY_RE)):
+            chunks.extend(split_text(unit, max_chars, overlap) if len(unit) > max_chars else [unit])
+        return chunks
+    return split_text(text, max_chars, overlap)
+
+
+def make_embedding_text(case_doc: dict[str, Any], section_title: str, chunk_text: str, core_issue: str = "") -> str:
+    parts = [
+        f"案由：{case_doc['reason']}",
+        f"审级：{case_doc['trial_level']}",
+        f"法院：{case_doc['court_name']}",
+    ]
+    if core_issue:
+        parts.append(f"核心争点：{core_issue}")
+    parts.extend(
         [
-            f"案由：{case_doc['reason']}",
-            f"审级：{case_doc['trial_level']}",
-            f"法院：{case_doc['court_name']}",
             f"章节：{section_title}",
             f"正文：{chunk_text}",
         ]
     )
+    return "\n".join(parts)
+
+
+def locate_chunk(full_text: str, chunk_text: str, start_hint: int) -> tuple[int, int, int]:
+    start = full_text.find(chunk_text, start_hint)
+    if start < 0:
+        start = full_text.find(chunk_text)
+    if start < 0:
+        lines = [line.strip() for line in chunk_text.splitlines() if line.strip()]
+        if lines:
+            first = lines[0]
+            start = full_text.find(first, start_hint)
+            if start < 0:
+                start = full_text.find(first)
+            if start >= 0:
+                end = start + len(first)
+                cursor = end
+                for line in lines[1:]:
+                    line_start = full_text.find(line, cursor)
+                    if line_start < 0:
+                        continue
+                    end = line_start + len(line)
+                    cursor = end
+                return start, end, end
+        return 0, len(chunk_text), start_hint
+    end = start + len(chunk_text)
+    return start, end, end
+
+
+def line_number_at(text: str, position: int) -> int:
+    if position <= 0:
+        return 1
+    return text.count("\n", 0, position) + 1
+
+
+def chunk_size_for_section(section_type: str) -> tuple[int, int]:
+    if section_type in {"claims", "defense"}:
+        return 760, 0
+    if section_type in {"facts", "reasoning"}:
+        return 900, 120
+    return 1600, 0
 
 
 def build_chunks(row: dict[str, Any], case_doc: dict[str, Any], embedding_model: str, embedding_version: str) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
     section_index = 0
     chunk_index_in_case = 0
+    core_issue = core_issue_text(row)
+    full_text = case_doc.get("full_text", "")
+    search_start = 0
     for section_type, section_text in build_sections(row, case_doc):
-        max_chars = 900 if section_type in {"facts", "reasoning", "claims"} else 1600
-        overlap = 120 if section_type in {"facts", "reasoning", "claims"} else 0
-        for chunk_index_in_section, chunk_text in enumerate(split_text(section_text, max_chars, overlap)):
+        max_chars, overlap = chunk_size_for_section(section_type)
+        for chunk_index_in_section, chunk_text in enumerate(split_section_text(section_type, section_text, max_chars, overlap)):
             chunk_id = f"{case_doc['doc_id']}#{section_type}#{section_index:02d}#{chunk_index_in_section:03d}"
+            char_start, char_end, search_start = locate_chunk(full_text, chunk_text, search_start)
             chunk = {
                 "chunk_id": chunk_id,
                 "doc_id": case_doc["doc_id"],
                 "chunk_text": chunk_text,
-                "embedding_text": make_embedding_text(case_doc, SECTION_TITLES[section_type], chunk_text),
+                "embedding_text": make_embedding_text(case_doc, SECTION_TITLES[section_type], chunk_text, core_issue),
                 "section_type": section_type,
                 "section_title": SECTION_TITLES[section_type],
                 "section_index": section_index,
                 "chunk_index_in_case": chunk_index_in_case,
                 "chunk_index_in_section": chunk_index_in_section,
-                "char_start": 0,
-                "char_end": len(chunk_text),
-                "line_start": 1,
-                "line_end": chunk_text.count("\n") + 1,
+                "char_start": char_start,
+                "char_end": char_end,
+                "line_start": line_number_at(full_text, char_start),
+                "line_end": line_number_at(full_text, char_end),
                 "prev_chunk_id": "",
                 "next_chunk_id": "",
                 "chunk_char_len": len(chunk_text),
