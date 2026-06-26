@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 try:
@@ -68,6 +69,25 @@ def clean_focus_labels(value: Any) -> list[str]:
         if len(labels) >= 4:
             break
     return labels
+
+
+def load_rewrite_cache(path: str) -> dict[str, Any]:
+    cache_path = Path(path)
+    if not cache_path.exists():
+        return {}
+    try:
+        with cache_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_rewrite_cache(cache: dict[str, Any], path: str) -> None:
+    cache_path = Path(path)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with cache_path.open("w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 
 def parse_rewrite_response(content: Any) -> LlmQueryRewrite:
@@ -174,9 +194,27 @@ def rewrite_query_with_llm(
     *,
     enabled: bool = True,
     client_factory: Callable[[], Any] | None = None,
+    cache_path: str | None = None,
 ) -> LlmQueryRewrite:
     if not enabled:
         return LlmQueryRewrite(fallback_reason="disabled")
+
+    cache: dict[str, Any] | None = None
+    if cache_path:
+        cache = load_rewrite_cache(cache_path)
+        if query in cache:
+            cached = cache[query]
+            if isinstance(cached, dict) and cached.get("used"):
+                return LlmQueryRewrite(
+                    expanded_query=cached.get("expanded_query", ""),
+                    legal_issue=cached.get("legal_issue", ""),
+                    fact_elements=cached.get("fact_elements", ""),
+                    statutes=cached.get("statutes", ""),
+                    main_leaf=cached.get("main_leaf", ""),
+                    focus_labels=cached.get("focus_labels", []),
+                    used=True,
+                )
+
     factory = client_factory or create_mimo_client
     if factory is create_mimo_client and not os.getenv(MIMO_API_KEY_ENV):
         return LlmQueryRewrite(fallback_reason="missing_api_key")
@@ -190,6 +228,12 @@ def rewrite_query_with_llm(
             messages=build_rewrite_messages(query),
         )
         message = response.choices[0].message
-        return parse_rewrite_response(extract_message_text(message))
+        rewrite = parse_rewrite_response(extract_message_text(message))
+
+        if cache_path and cache is not None and rewrite.used:
+            cache[query] = rewrite.to_dict()
+            save_rewrite_cache(cache, cache_path)
+
+        return rewrite
     except Exception as exc:
         return LlmQueryRewrite(fallback_reason=f"llm_error:{type(exc).__name__}")

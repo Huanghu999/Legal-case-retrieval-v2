@@ -60,7 +60,8 @@ def run_search(args: argparse.Namespace) -> dict[str, Any]:
     route_weight_overrides = getattr(args, "route_weight_overrides", {}) or {}
     profile = build_query_profile(args.query)
     llm_query_rewrite_enabled = bool(query_profile_enabled and getattr(args, "llm_query_rewrite", False))
-    rewrite = rewrite_query_with_llm(args.query, enabled=llm_query_rewrite_enabled)
+    llm_rewrite_cache_path = getattr(args, "llm_rewrite_cache_path", None) or None
+    rewrite = rewrite_query_with_llm(args.query, enabled=llm_query_rewrite_enabled, cache_path=llm_rewrite_cache_path)
     routes = build_query_routes(profile, rewrite if rewrite.used else None) if query_profile_enabled else []
     if not routes:
         routes = [

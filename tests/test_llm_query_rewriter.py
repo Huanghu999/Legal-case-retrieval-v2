@@ -1,10 +1,13 @@
+import json
 from types import SimpleNamespace
 
 from src.legal_case_rag.retrieval.llm_query_rewriter import (
     LlmQueryRewrite,
     build_rewrite_messages,
+    load_rewrite_cache,
     parse_rewrite_response,
     rewrite_query_with_llm,
+    save_rewrite_cache,
 )
 
 
@@ -94,3 +97,86 @@ def test_build_rewrite_messages_include_field_aligned_few_shots():
     assert "事实买卖合同成立" in prompt_text
     assert "focus_labels" in prompt_text
     assert "不要回答法律问题" in prompt_text
+
+
+def test_load_rewrite_cache_returns_empty_for_missing_file(tmp_path):
+    cache = load_rewrite_cache(str(tmp_path / "nonexistent.json"))
+    assert cache == {}
+
+
+def test_save_and_load_rewrite_cache(tmp_path):
+    cache_path = str(tmp_path / "cache.json")
+    cache_data = {
+        "测试query": {
+            "expanded_query": "扩展query",
+            "legal_issue": "法律争点",
+            "fact_elements": "",
+            "statutes": "",
+            "main_leaf": "",
+            "focus_labels": [],
+            "used": True,
+            "fallback_reason": "",
+        }
+    }
+    save_rewrite_cache(cache_data, cache_path)
+
+    loaded = load_rewrite_cache(cache_path)
+    assert loaded["测试query"]["expanded_query"] == "扩展query"
+    assert loaded["测试query"]["used"] is True
+
+
+def test_rewrite_query_with_llm_returns_cached_result(tmp_path):
+    cache_path = str(tmp_path / "cache.json")
+    cache_data = {
+        "能否认定买卖合同？": {
+            "expanded_query": "事实买卖合同成立",
+            "legal_issue": "合同成立与否",
+            "fact_elements": "微信对账",
+            "statutes": "",
+            "main_leaf": "A1_口头或事实买卖合同成立认定",
+            "focus_labels": ["合同成立与否"],
+            "used": True,
+            "fallback_reason": "",
+        }
+    }
+    save_rewrite_cache(cache_data, cache_path)
+
+    rewrite = rewrite_query_with_llm(
+        "能否认定买卖合同？",
+        enabled=True,
+        cache_path=cache_path,
+    )
+
+    assert rewrite.used is True
+    assert rewrite.expanded_query == "事实买卖合同成立"
+    assert rewrite.main_leaf == "A1_口头或事实买卖合同成立认定"
+
+
+def test_rewrite_query_with_llm_saves_to_cache_on_miss(tmp_path):
+    cache_path = str(tmp_path / "cache.json")
+
+    message = SimpleNamespace(content='{"expanded_query":"测试扩展","legal_issue":"争点","fact_elements":"事实"}')
+    choice = SimpleNamespace(message=message)
+    response = SimpleNamespace(choices=[choice])
+
+    class ChatCompletions:
+        def create(self, **kwargs):
+            return response
+
+    class Client:
+        chat = SimpleNamespace(completions=ChatCompletions())
+
+    rewrite = rewrite_query_with_llm(
+        "新的query",
+        enabled=True,
+        client_factory=lambda: Client(),
+        cache_path=cache_path,
+    )
+
+    assert rewrite.used is True
+    assert rewrite.expanded_query == "测试扩展"
+
+    # 验证已写入缓存
+    cache = load_rewrite_cache(cache_path)
+    assert "新的query" in cache
+    assert cache["新的query"]["expanded_query"] == "测试扩展"

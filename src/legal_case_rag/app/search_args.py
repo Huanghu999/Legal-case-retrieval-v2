@@ -94,6 +94,10 @@ def build_search_args(
             payload.get("llm_query_rewrite"),
             default_config.get("llm_query_rewrite", False),
         ),
+        llm_rewrite_cache_path=str_param(
+            payload.get("llm_rewrite_cache_path"),
+            default_config.get("llm_rewrite_cache_path", ""),
+        ) or None,
         route_weight_overrides=dict_param(
             payload.get("route_weight_overrides"),
             default_config.get("route_weight_overrides", {}),

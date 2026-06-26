@@ -12,6 +12,7 @@ from src.legal_case_rag.retrieval import search as retrieval
 
 
 BENCHMARK_DATA_DIR = Path("data") / "caselaw-benchmark release" / "data"
+DEFAULT_REWRITE_CACHE_PATH = Path("benchmark_dataset") / "llm_rewrite_cache.json"
 POSITIVE_GRADE = 2
 BENCHMARK_METHODS = {
     "hybrid": {"label": "Hybrid 召回", "mode": "hybrid", "rerank": False},
@@ -474,6 +475,7 @@ def run_benchmark_method(
             "query_profile": True,
             "query_profile_boost": True,
             "llm_query_rewrite": llm_query_rewrite,
+            "llm_rewrite_cache_path": str(DEFAULT_REWRITE_CACHE_PATH) if llm_query_rewrite else "",
             "route_weight_overrides": route_weight_overrides or {},
         }
         args = build_search_args(search_payload)
