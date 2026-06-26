@@ -190,6 +190,9 @@ def bulk_ingest(client: OpenSearchClient, index: str, path: Path, id_field: str,
 
 
 def main() -> int:
+    from src.legal_case_rag.runtime.env import load_project_env
+    load_project_env()
+
     args = parse_args()
     cases_path = Path(args.cases)
     chunks_path = choose_chunk_path(Path(args.chunks))

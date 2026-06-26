@@ -134,6 +134,9 @@ def embed_with_retries(args: argparse.Namespace, api_key: str, inputs: list[str]
 
 
 def main() -> int:
+    from src.legal_case_rag.runtime.env import load_project_env
+    load_project_env()
+
     args = parse_args()
     input_path = Path(args.input)
     output_path = Path(args.output)
